@@ -25,3 +25,12 @@ class TestStringValidation(unittest.TestCase):
         })
         with self.assertRaises(t.DataError):
             check('blabla')
+
+    def test_pattern(self):
+        check = trafaret_schema.json_schema({
+            'type': 'string',
+            'pattern': 'bla+',
+            'maxLength': 10,
+            'minLength': 5,
+        })
+        self.assertEqual(check('blablabla'), 'blablabla')
