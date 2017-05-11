@@ -85,6 +85,13 @@ json_schema_type = (
     | t.Atom('string') & then(just(t.String()))
 )
 
+def multipleOf(multiplier):
+    def check(value):
+        if value % multiplier != 0:
+            return t.DataError('%s is not devisible by %s' % (value, multiplier))
+        return value
+    return check
+
 keywords = (
     t.Key('enum', optional=True, trafaret=t.List(t.Any)), # uniq?
     t.Key('const', optional=True, trafaret=t.Any()),
@@ -97,11 +104,11 @@ keywords = (
     t.Key('not', optional=True, trafaret=json_schema),
 
     # number validation
-    t.Key('multipleOf', optional=True, trafaret=t.Int(gt=0)),
-    t.Key('maximum', optional=True, trafaret=t.Int() & then(lambda maximum: t.Int(lte=maximum))),
-    t.Key('exclusiveMaximum', optional=True, trafaret=t.Int() & then(lambda maximum: t.Int(lt=maximum))),
-    t.Key('minimum', optional=True, trafaret=t.Int() & then(lambda minimum: t.Int(gte=minimum))),
-    t.Key('exclusiveMinimum', optional=True, trafaret=t.Int() & then(lambda minimum: t.Int(gt=minimum))),
+    t.Key('multipleOf', optional=True, trafaret=t.Float(gt=0) & then(multipleOf)),
+    t.Key('maximum', optional=True, trafaret=t.Float() & then(lambda maximum: t.Float(lte=maximum))),
+    t.Key('exclusiveMaximum', optional=True, trafaret=t.Float() & then(lambda maximum: t.Float(lt=maximum))),
+    t.Key('minimum', optional=True, trafaret=t.Float() & then(lambda minimum: t.Float(gte=minimum))),
+    t.Key('exclusiveMinimum', optional=True, trafaret=t.Float() & then(lambda minimum: t.Float(gt=minimum))),
 
     # string
     t.Key('maxLength', optional=True, trafaret=t.Int(gte=0) & then(lambda length: t.String(max_length=length))),
