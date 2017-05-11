@@ -1,0 +1,1 @@
+trafaret==0.9.1      # trafaret << requirements file
