@@ -20,7 +20,7 @@ class All(t.Trafaret):
     def __init__(self, trafarets):
         self.trafarets = trafarets
 
-    def check(self, value):
+    def check_and_return(self, value):
         errors = []
         for trafaret in self.trafarets:
             res = t.catch_error(trafaret, value)
@@ -38,7 +38,7 @@ class Any(t.Trafaret):
     def __init__(self, trafarets):
         self.trafarets = trafarets
 
-    def check(self, value):
+    def check_and_return(self, value):
         errors = []
         for trafaret in self.trafarets:
             res = t.catch_error(trafaret, value)
@@ -50,6 +50,17 @@ class Any(t.Trafaret):
 
     def __repr__(self):
         return '<Any trafarets=[%s]>' % ', '.join(repr(r) for r in self.trafarets)
+
+
+class Not(t.Trafaret):
+    def __init__(self, trafaret):
+        self.trafaret = trafaret
+
+    def check_and_return(self, value):
+        res = t.catch_error(self.trafaret, value)
+        if not isinstance(res, t.DataError):
+            raise t.DataError('Value must not be validated')
+        return value
 
 
 class Pattern(t.Trafaret):
@@ -93,15 +104,15 @@ def multipleOf(multiplier):
     return check
 
 keywords = (
-    t.Key('enum', optional=True, trafaret=t.List(t.Any)), # uniq?
-    t.Key('const', optional=True, trafaret=t.Any()),
+    t.Key('enum', optional=True, trafaret=t.List(t.Any) & then(lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))), # uniq?
+    t.Key('const', optional=True, trafaret=t.Any() & then(t.Atom)),
     t.Key('type', optional=True, trafaret=ensure_list(json_schema_type) & then(Any)),
 
     # predicates
     t.Key('allOf', optional=True, trafaret=t.List(json_schema) & then(All)),
     t.Key('anyOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
     t.Key('oneOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
-    t.Key('not', optional=True, trafaret=json_schema),
+    t.Key('not', optional=True, trafaret=json_schema & then(Not)),
 
     # number validation
     t.Key('multipleOf', optional=True, trafaret=t.Float(gt=0) & then(multipleOf)),
@@ -166,5 +177,4 @@ def validate_schema(schema):
     if errors:
         raise t.DataError(errors)
     return All(keywords_checks)
-
-json_schema << t.Call(validate_schema)
+json_schema << (t.Type(dict) & t.Call(validate_schema))
