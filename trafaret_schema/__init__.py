@@ -83,9 +83,9 @@ ensure_list = lambda typ: t.List(typ) | typ & (lambda x: [x])
 
 # JSON Schema implementation
 ############################
-json_schema = t.Forward()
+class Register:
+    pass
 
-#json_schema_type = t.Enum('null', 'boolean', 'object', 'array', 'number', 'integer', 'string')
 json_schema_type = (
     t.Atom('null') & then(just(t.Null()))
     | t.Atom('boolean') & then(just(t.Bool()))
@@ -96,6 +96,7 @@ json_schema_type = (
     | t.Atom('string') & then(just(t.String()))
 )
 
+
 def multipleOf(multiplier):
     def check(value):
         if value % multiplier != 0:
@@ -103,16 +104,17 @@ def multipleOf(multiplier):
         return value
     return check
 
+
+def uniq(lst):
+    if len(set(lst)) < len(lst):
+        return t.DataError('Array elements are not uniq')
+    return lst
+
+
 keywords = (
     t.Key('enum', optional=True, trafaret=t.List(t.Any) & then(lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))), # uniq?
     t.Key('const', optional=True, trafaret=t.Any() & then(t.Atom)),
     t.Key('type', optional=True, trafaret=ensure_list(json_schema_type) & then(Any)),
-
-    # predicates
-    t.Key('allOf', optional=True, trafaret=t.List(json_schema) & then(All)),
-    t.Key('anyOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
-    t.Key('oneOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
-    t.Key('not', optional=True, trafaret=json_schema & then(Not)),
 
     # number validation
     t.Key('multipleOf', optional=True, trafaret=t.Float(gt=0) & then(multipleOf)),
@@ -127,54 +129,75 @@ keywords = (
     t.Key('pattern', optional=True, trafaret=Pattern() & then(lambda pattern: t.Regexp(pattern))),
 
     # array
-    t.Key('items', optional=True, trafaret=ensure_list(json_schema)),
-    t.Key('additionalItems', optional=True, trafaret=json_schema),
-    t.Key('maxItems', optional=True, trafaret=t.Int(gte=0)),
-    t.Key('minItems', optional=True, trafaret=t.Int(gte=0)),
-    t.Key('uniqueItems', optional=True, trafaret=t.Bool()),
-    t.Key('contains', optional=True, trafaret=json_schema),
+    t.Key('maxItems', optional=True, trafaret=t.Int(gte=0) & then(lambda length: t.List(t.Any, max_length=length))),
+    t.Key('minItems', optional=True, trafaret=t.Int(gte=0) & then(lambda length: t.List(t.Any, min_length=length))),
+    t.Key('uniqueItems', optional=True, trafaret=t.Bool() & then(lambda need_check: t.List(t.Any) & uniq if need_check else t.Any)),
 
     # object
-    t.Key('maxProperties', optional=True, trafaret=t.Int(gte=0)),
-    t.Key('minProperties', optional=True, trafaret=t.Int(gte=0)),
+    t.Key('maxProperties', optional=True, trafaret=t.Int(gte=0) & then(lambda max_props: t.Type(dict) & (lambda props: props if len(props) <= max_props else t.DataError('Too many properties')))),
+    t.Key('minProperties', optional=True, trafaret=t.Int(gte=0) & then(lambda min_props: t.Type(dict) & (lambda props: props if len(props) >= min_props else t.DataError('Too few properties')))),
     t.Key('required', optional=True, trafaret=unique_strings_list),
-    t.Key('properties', optional=True, trafaret=t.Mapping(t.String, json_schema)),
-    t.Key('patternProperties', optional=True, trafaret=t.Mapping(Pattern, json_schema)),
-    t.Key('additionalProperties', optional=True, trafaret=json_schema),
-    t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list | json_schema)),
-    t.Key('propertyNames', optional=True, trafaret=json_schema),
 
     t.Key('format', optional=True, trafaret=t.Enum('date-time', 'date', 'time', 'email', 'phone', 'hostname', 'ipv4', 'ipv6', 'uri', 'uri-reference', 'uri-template', 'json-pointer')),
 )
 
-metadata = (
-    t.Key('$id', optional=True, trafaret=t.URL),
-    t.Key('$schema', optional=True, trafaret=t.URL),
-    t.Key('$ref', optional=True, trafaret=t.String),
-    t.Key('title', optional=True, trafaret=t.String),
-    t.Key('description', optional=True, trafaret=t.String),
-    t.Key('definitions', optional=True, trafaret=t.Mapping(t.String, json_schema)),
-    t.Key('examples', optional=True, trafaret=t.List(t.Any)),
-)
-
 ignore_keys = {'$id', '$schema', '$ref', 'title', 'description', 'definitions', 'examples'}
 
-def validate_schema(schema):
-    touched_names = set()
-    errors = {}
-    keywords_checks = []
-    for key in keywords:
-        for k, v, names in key(schema):
-            if isinstance(v, t.DataError):
-                errors[k] = v
-            else:
-                keywords_checks.append(v)
-            touched_names = touched_names.union(names)
-    touched_names = touched_names.union(ignore_keys)
-    schema_keys = set(schema.keys())
-    for key in schema_keys - touched_names:
-        errors[key] = '%s is not allowed key' % key
-    if errors:
-        raise t.DataError(errors)
-    return All(keywords_checks)
-json_schema << (t.Type(dict) & t.Call(validate_schema))
+
+def create_schema_parser(register):
+    json_schema = t.Forward()
+    metadata = (
+        t.Key('$id', optional=True, trafaret=t.URL),
+        t.Key('$schema', optional=True, trafaret=t.URL),
+        t.Key('$ref', optional=True, trafaret=t.String),
+        t.Key('title', optional=True, trafaret=t.String),
+        t.Key('description', optional=True, trafaret=t.String),
+        t.Key('definitions', optional=True, trafaret=t.Mapping(t.String, json_schema)),
+        t.Key('examples', optional=True, trafaret=t.List(t.Any)),
+        t.Key('default', optional=True, trafaret=t.Any),
+    )
+
+    schema_keywords = (
+        # predicates
+        t.Key('allOf', optional=True, trafaret=t.List(json_schema) & then(All)),
+        t.Key('anyOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
+        t.Key('oneOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
+        t.Key('not', optional=True, trafaret=json_schema & then(Not)),
+        # array
+        t.Key('items', optional=True, trafaret=ensure_list(json_schema)),
+        t.Key('additionalItems', optional=True, trafaret=json_schema),
+        t.Key('contains', optional=True, trafaret=json_schema),
+        # object
+        t.Key('properties', optional=True, trafaret=t.Mapping(t.String, json_schema)),
+        t.Key('patternProperties', optional=True, trafaret=t.Mapping(Pattern, json_schema)),
+        t.Key('additionalProperties', optional=True, trafaret=json_schema),
+        t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list | json_schema)),
+        t.Key('propertyNames', optional=True, trafaret=json_schema),
+    )
+
+    def validate_schema(schema):
+        touched_names = set()
+        errors = {}
+        keywords_checks = []
+        for key in [*keywords, *schema_keywords]:
+            for k, v, names in key(schema):
+                if isinstance(v, t.DataError):
+                    errors[k] = v
+                else:
+                    keywords_checks.append(v)
+                touched_names = touched_names.union(names)
+        touched_names = touched_names.union(ignore_keys)
+        schema_keys = set(schema.keys())
+        for key in schema_keys - touched_names:
+            errors[key] = '%s is not allowed key' % key
+        if errors:
+            raise t.DataError(errors)
+        return All(keywords_checks)
+
+    json_schema << (t.Type(dict) & t.Call(validate_schema))
+    return json_schema
+
+
+def json_schema(schema, register=None):
+    register = register or Register()
+    return create_schema_parser(register)(schema)

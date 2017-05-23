@@ -163,3 +163,43 @@ class TestNumberValidation(unittest.TestCase):
             check(11)
 
 
+class TestArrays(unittest.TestCase):
+    def test_min_items(self):
+        check = trafaret_schema.json_schema({
+            'type': 'array',
+            'minItems': 5,
+        })
+        with self.assertRaises(t.DataError):
+            check([1,2,3,4])
+        self.assertEqual(check([1,2,3,4,5]), [1,2,3,4,5])
+
+    def test_max_items(self):
+        check = trafaret_schema.json_schema({
+            'type': 'array',
+            'maxItems': 5,
+        })
+        with self.assertRaises(t.DataError):
+            check([1,2,3,4,5,6])
+        self.assertEqual(check([1,2,3,4,5]), [1,2,3,4,5])
+
+    def test_uniq(self):
+        check = trafaret_schema.json_schema({
+            'type': 'array',
+            'uniqueItems': True,
+        })
+        with self.assertRaises(t.DataError):
+            check([1,2,3,4,5,5])
+        self.assertEqual(check([1,2,3,4,5]), [1,2,3,4,5])
+
+
+class TestObjects(unittest.TestCase):
+    def test_max_props(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            'maxProperties': 1,
+        })
+        with self.assertRaises(t.DataError):
+            check({'a': 1, 'b': 2})
+        self.assertEqual(check({'a': 1}), {'a': 1})
+        check({'a': 1, 'b': 2})
+
