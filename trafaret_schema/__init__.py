@@ -123,6 +123,19 @@ def required(names):
     return check
 
 
+def contains(trafaret):
+    def check(data):
+        for v in data.values():
+            try:
+                trafaret(v)
+            except t.DataError:
+                pass
+            else:
+                return value
+        raise t.DataError('Array does not contains any value that completes test')
+    return check
+
+
 keywords = (
     t.Key('enum', optional=True, trafaret=t.List(t.Any) & then(lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))), # uniq?
     t.Key('const', optional=True, trafaret=t.Any() & then(t.Atom)),
@@ -243,7 +256,7 @@ def create_schema_parser(register):
         t.Key('oneOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
         t.Key('not', optional=True, trafaret=json_schema & then(Not)),
         # array
-        t.Key('contains', optional=True, trafaret=json_schema),
+        t.Key('contains', optional=True, trafaret=json_schema & then(contains)),
         subdict(
             'array',
             t.Key('items', optional=True, trafaret=ensure_list(json_schema)),
