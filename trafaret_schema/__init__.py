@@ -111,6 +111,18 @@ def uniq(lst):
     return lst
 
 
+def required(names):
+    def check(value):
+        errors = {}
+        for name in names:
+            if name not in value:
+                errors[name] = t.DataError('%s is required' % name)
+        if errors:
+            return t.DataError(errors)
+        return value
+    return check
+
+
 keywords = (
     t.Key('enum', optional=True, trafaret=t.List(t.Any) & then(lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))), # uniq?
     t.Key('const', optional=True, trafaret=t.Any() & then(t.Atom)),
@@ -136,12 +148,79 @@ keywords = (
     # object
     t.Key('maxProperties', optional=True, trafaret=t.Int(gte=0) & then(lambda max_props: t.Type(dict) & (lambda props: props if len(props) <= max_props else t.DataError('Too many properties')))),
     t.Key('minProperties', optional=True, trafaret=t.Int(gte=0) & then(lambda min_props: t.Type(dict) & (lambda props: props if len(props) >= min_props else t.DataError('Too few properties')))),
-    t.Key('required', optional=True, trafaret=unique_strings_list),
+    t.Key('required', optional=True, trafaret=unique_strings_list & then(required)),
 
     t.Key('format', optional=True, trafaret=t.Enum('date-time', 'date', 'time', 'email', 'phone', 'hostname', 'ipv4', 'ipv6', 'uri', 'uri-reference', 'uri-template', 'json-pointer')),
 )
 
 ignore_keys = {'$id', '$schema', '$ref', 'title', 'description', 'definitions', 'examples'}
+
+
+def subdict(name, *keys, trafaret):
+    def inner(data):
+        errors = False
+        preserve_output = []
+        touched = set()
+        collect = {}
+        for key in keys:
+            for k, v, names in key(data):
+                touched.update(names)
+                preserve_output.append((k, v, names))
+                if isinstance(v, t.DataError):
+                    errors = True
+                else:
+                    collect[k] = v
+        if errors:
+            yield from preserve_output
+        elif collect:
+            yield name, t.catch(trafaret, **collect), touched
+    return inner
+
+
+def check_array(*, items=[], additionalItems=None):
+    if len(items) == 1:
+        return t.List(items[0])
+
+    def inner(data):
+        errors = {}
+        values = []
+        for index, schema in enumerate(items):
+            try:
+                value = schema(data[index])
+                values.append(value)
+            except t.DataError as de:
+                errors[index] = de
+            except IndexError:
+                errors[index] = t.DataError('value with this index is required')
+        if len(items) < len(data):
+            if additionalItems:
+                for index in range(len(items), len(data)):
+                    try:
+                        value = additionalItems(data[index])
+                        values.append(value)
+                    except t.DataError as de:
+                        errors[index] = de
+            else:
+                raise t.DataError('Too many items in array')
+        if errors:
+            raise t.DataError(errors)
+        return values
+    return inner
+
+
+def check_object(*, properties={}, patternProperties={}, propertyNames=set(), additionalProperties=None, dependencies=set()):
+    keys = []
+    for name, trafaret in properties.items():
+        keys.append(t.Key(name, trafaret=trafaret))
+    for pattern, trafaret in patternProperties.items():
+        raise
+    additionals_trafaret = additionalProperties or t.Any
+    dict_trafaret = t.Dict(*keys, allow_extra='*', allow_extra_trafaret=additionals_trafaret)
+
+    def inner(data):
+        return dict_trafaret(data)
+
+    return inner
 
 
 def create_schema_parser(register):
@@ -164,15 +243,23 @@ def create_schema_parser(register):
         t.Key('oneOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
         t.Key('not', optional=True, trafaret=json_schema & then(Not)),
         # array
-        t.Key('items', optional=True, trafaret=ensure_list(json_schema)),
-        t.Key('additionalItems', optional=True, trafaret=json_schema),
         t.Key('contains', optional=True, trafaret=json_schema),
+        subdict(
+            'array',
+            t.Key('items', optional=True, trafaret=ensure_list(json_schema)),
+            t.Key('additionalItems', optional=True, trafaret=json_schema),
+            trafaret=check_array,
+        ),
         # object
-        t.Key('properties', optional=True, trafaret=t.Mapping(t.String, json_schema)),
-        t.Key('patternProperties', optional=True, trafaret=t.Mapping(Pattern, json_schema)),
-        t.Key('additionalProperties', optional=True, trafaret=json_schema),
-        t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list | json_schema)),
-        t.Key('propertyNames', optional=True, trafaret=json_schema),
+        subdict(
+            'object',
+            t.Key('properties', optional=True, trafaret=t.Mapping(t.String, json_schema)),
+            t.Key('patternProperties', optional=True, trafaret=t.Mapping(Pattern, json_schema)),
+            t.Key('propertyNames', optional=True, trafaret=json_schema),
+            t.Key('additionalProperties', optional=True, trafaret=json_schema),
+            t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list | json_schema)),
+            trafaret=check_object,
+        ),
     )
 
     def validate_schema(schema):

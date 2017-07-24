@@ -42,6 +42,8 @@ class TestConstEnumType(unittest.TestCase):
 
         check = trafaret_schema.json_schema({'type': 'integer'})
         self.assertEqual(check(200), 200)
+        with self.assertRaises(t.DataError):
+            check('blabla')
 
         check = trafaret_schema.json_schema({'type': 'string'})
         self.assertEqual(check('a'), 'a')
@@ -191,6 +193,40 @@ class TestArrays(unittest.TestCase):
             check([1,2,3,4,5,5])
         self.assertEqual(check([1,2,3,4,5]), [1,2,3,4,5])
 
+    def test_simple_items(self):
+        check = trafaret_schema.json_schema({
+            'type': 'array',
+            'items': {'type': 'number'},
+        })
+        with self.assertRaises(t.DataError):
+            check([1,2,'a',4,5,5])
+        self.assertEqual(check([1,2,3,4,5]), [1,2,3,4,5])
+
+    def test_positional_items(self):
+        check = trafaret_schema.json_schema({
+            'type': 'array',
+            'items': [{'type': 'number'}, {'type': 'string'}],
+        })
+        with self.assertRaises(t.DataError):
+            # bad 2nd position
+            check([1,None])
+        with self.assertRaises(t.DataError):
+            # too long array
+            check([1,'a',4,5,5])
+        self.assertEqual(check([1,'a']), [1,'a'])
+
+    def test_additional_items(self):
+        check = trafaret_schema.json_schema({
+            'type': 'array',
+            'items': [{'type': 'number'}, {'type': 'string'}],
+            'additionalItems': {'type': 'number'},
+        })
+        with self.assertRaises(t.DataError):
+            check([1,None,4,5,5])
+        with self.assertRaises(t.DataError):
+            check([1,'a','a',5,5])
+        self.assertEqual(check([1,'a',5,5,5]), [1,'a',5,5,5])
+
 
 class TestObjects(unittest.TestCase):
     def test_max_props(self):
@@ -201,5 +237,39 @@ class TestObjects(unittest.TestCase):
         with self.assertRaises(t.DataError):
             check({'a': 1, 'b': 2})
         self.assertEqual(check({'a': 1}), {'a': 1})
-        check({'a': 1, 'b': 2})
 
+    def test_min_props(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            'minProperties': 2,
+        })
+        with self.assertRaises(t.DataError):
+            check({'a': 1})
+        self.assertEqual(check({'a': 1, 'b': 2}), {'a': 1, 'b': 2})
+
+    def test_required(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            'required': ['a', 'b'],
+        })
+        with self.assertRaises(t.DataError):
+            check({'a': 1})
+        self.assertEqual(check({'a': 1, 'b': 2}), {'a': 1, 'b': 2})
+
+    def test_properties(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            'properties': {'a': {'type': 'number'}},
+        })
+        with self.assertRaises(t.DataError):
+            check({'a': 'b'})
+        self.assertEqual(check({'a': 1, 'b': 2}), {'a': 1, 'b': 2})
+
+    def test_pattern_properties(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            'patternProperties': {'a': {'type': 'number'}},
+        })
+        with self.assertRaises(t.DataError):
+            check({'a': 'b'})
+        self.assertEqual(check({'a': 1, 'b': 2}), {'a': 1, 'b': 2})
