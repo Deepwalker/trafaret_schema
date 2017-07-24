@@ -125,13 +125,13 @@ def required(names):
 
 def contains(trafaret):
     def check(data):
-        for v in data.values():
+        for v in data:
             try:
                 trafaret(v)
             except t.DataError:
                 pass
             else:
-                return value
+                return data
         raise t.DataError('Array does not contains any value that completes test')
     return check
 
