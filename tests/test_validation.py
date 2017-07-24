@@ -275,11 +275,12 @@ class TestObjects(unittest.TestCase):
         self.assertEqual(check({'a': 1, 'b': 2}), {'a': 1, 'b': 2})
 
     def test_pattern_properties(self):
-        return
         check = trafaret_schema.json_schema({
             'type': 'object',
-            'patternProperties': {'a': {'type': 'number'}},
+            'patternProperties': {'a+': {'type': 'number'}},
         })
         with self.assertRaises(t.DataError):
             check({'a': 'b'})
-        self.assertEqual(check({'a': 1, 'b': 2}), {'a': 1, 'b': 2})
+        with self.assertRaises(t.DataError):
+            check({'a': 3, 'aaa': 'b'})
+        self.assertEqual(check({'a': 1, 'aaa': 3}), {'a': 1, 'aaa': 3})

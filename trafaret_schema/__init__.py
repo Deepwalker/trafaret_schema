@@ -221,12 +221,22 @@ def check_array(*, items=[], additionalItems=None):
     return inner
 
 
+def pattern_key(regexp_str, trafaret):
+    regexp = re.compile(regexp_str)
+
+    def inner(data):
+        for k, v in data.items():
+            if regexp.match(k):
+                yield k, t.catch(trafaret, v), (k,)
+    return inner
+
+
 def check_object(*, properties={}, patternProperties={}, propertyNames=set(), additionalProperties=None, dependencies=set()):
     keys = []
     for name, trafaret in properties.items():
         keys.append(t.Key(name, trafaret=trafaret))
     for pattern, trafaret in patternProperties.items():
-        raise
+        keys.append(pattern_key(pattern, trafaret))
     additionals_trafaret = additionalProperties or t.Any
     dict_trafaret = t.Dict(*keys, allow_extra='*', allow_extra_trafaret=additionals_trafaret)
 
