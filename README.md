@@ -18,22 +18,22 @@ Features:
         [*] const
         [*] number
         [*] string
-    [ ] array
+    [*] array
         [*] minProperties
         [*] maxProperties
         [*] uniqueItems
-        [ ] items
-        [ ] additionalItems
-        [ ] contains
-    [ ] objects
+        [*] items
+        [*] additionalItems
+        [*] contains
+    [*] objects
         [*] maxProperties
         [*] minProperties
-        [ ] required
-        [ ] properties
-        [ ] patternProperties
-        [ ] additionalProperties
-        [ ] dependencies
-        [ ] propertyNames
+        [*] required
+        [*] properties
+        [*] patternProperties
+        [*] additionalProperties
+        [*] dependencies
+        [*] propertyNames
     [*] combinators
         [*] anyOf
         [*] allOf
