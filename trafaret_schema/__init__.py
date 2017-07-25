@@ -6,9 +6,8 @@ import trafaret as t
 # Utils
 #######
 def then(trafaret_creator):
-    def check_schema_value(value):
-        return trafaret_creator(value)
-    return check_schema_value
+    return trafaret_creator
+
 
 def just(trafaret):
     def create(value):
@@ -87,13 +86,13 @@ class Register:
     pass
 
 json_schema_type = (
-    t.Atom('null') & then(just(t.Null()))
-    | t.Atom('boolean') & then(just(t.Bool()))
-    | t.Atom('object') & then(just(t.Type(dict)))
-    | t.Atom('array') & then(just(t.Type(list)))
-    | t.Atom('number') & then(just(t.Float()))
-    | t.Atom('integer') & then(just(t.Int()))
-    | t.Atom('string') & then(just(t.String()))
+    t.Atom('null') & just(t.Null())
+    | t.Atom('boolean') & just(t.Bool())
+    | t.Atom('object') & just(t.Type(dict))
+    | t.Atom('array') & just(t.Type(list))
+    | t.Atom('number') & just(t.Float())
+    | t.Atom('integer') & just(t.Int())
+    | t.Atom('string') & just(t.String())
 )
 
 
@@ -136,32 +135,39 @@ def contains(trafaret):
     return check
 
 
+def property_names(trafaret):
+    checker = t.List(trafaret)
+    def check(data):
+        return checker(list(data.keys()))
+    return check
+
+
 keywords = (
-    t.Key('enum', optional=True, trafaret=t.List(t.Any) & then(lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))), # uniq?
+    t.Key('enum', optional=True, trafaret=t.List(t.Any) & (lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))), # uniq?
     t.Key('const', optional=True, trafaret=t.Any() & then(t.Atom)),
     t.Key('type', optional=True, trafaret=ensure_list(json_schema_type) & then(Any)),
 
     # number validation
     t.Key('multipleOf', optional=True, trafaret=t.Float(gt=0) & then(multipleOf)),
-    t.Key('maximum', optional=True, trafaret=t.Float() & then(lambda maximum: t.Float(lte=maximum))),
-    t.Key('exclusiveMaximum', optional=True, trafaret=t.Float() & then(lambda maximum: t.Float(lt=maximum))),
-    t.Key('minimum', optional=True, trafaret=t.Float() & then(lambda minimum: t.Float(gte=minimum))),
-    t.Key('exclusiveMinimum', optional=True, trafaret=t.Float() & then(lambda minimum: t.Float(gt=minimum))),
+    t.Key('maximum', optional=True, trafaret=t.Float() & (lambda maximum: t.Float(lte=maximum))),
+    t.Key('exclusiveMaximum', optional=True, trafaret=t.Float() & (lambda maximum: t.Float(lt=maximum))),
+    t.Key('minimum', optional=True, trafaret=t.Float() & (lambda minimum: t.Float(gte=minimum))),
+    t.Key('exclusiveMinimum', optional=True, trafaret=t.Float() & (lambda minimum: t.Float(gt=minimum))),
 
     # string
-    t.Key('maxLength', optional=True, trafaret=t.Int(gte=0) & then(lambda length: t.String(max_length=length))),
-    t.Key('minLength', optional=True, trafaret=t.Int(gte=0) & then(lambda length: t.String(min_length=length))),
-    t.Key('pattern', optional=True, trafaret=Pattern() & then(lambda pattern: t.Regexp(pattern))),
+    t.Key('maxLength', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.String(max_length=length))),
+    t.Key('minLength', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.String(min_length=length))),
+    t.Key('pattern', optional=True, trafaret=Pattern() & (lambda pattern: t.Regexp(pattern))),
 
     # array
-    t.Key('maxItems', optional=True, trafaret=t.Int(gte=0) & then(lambda length: t.List(t.Any, max_length=length))),
-    t.Key('minItems', optional=True, trafaret=t.Int(gte=0) & then(lambda length: t.List(t.Any, min_length=length))),
-    t.Key('uniqueItems', optional=True, trafaret=t.Bool() & then(lambda need_check: t.List(t.Any) & uniq if need_check else t.Any)),
+    t.Key('maxItems', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.List(t.Any, max_length=length))),
+    t.Key('minItems', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.List(t.Any, min_length=length))),
+    t.Key('uniqueItems', optional=True, trafaret=t.Bool() & (lambda need_check: t.List(t.Any) & uniq if need_check else t.Any)),
 
     # object
-    t.Key('maxProperties', optional=True, trafaret=t.Int(gte=0) & then(lambda max_props: t.Type(dict) & (lambda props: props if len(props) <= max_props else t.DataError('Too many properties')))),
-    t.Key('minProperties', optional=True, trafaret=t.Int(gte=0) & then(lambda min_props: t.Type(dict) & (lambda props: props if len(props) >= min_props else t.DataError('Too few properties')))),
-    t.Key('required', optional=True, trafaret=unique_strings_list & then(required)),
+    t.Key('maxProperties', optional=True, trafaret=t.Int(gte=0) & (lambda max_props: t.Type(dict) & (lambda props: props if len(props) <= max_props else t.DataError('Too many properties')))),
+    t.Key('minProperties', optional=True, trafaret=t.Int(gte=0) & (lambda min_props: t.Type(dict) & (lambda props: props if len(props) >= min_props else t.DataError('Too few properties')))),
+    t.Key('required', optional=True, trafaret=unique_strings_list & required),
 
     t.Key('format', optional=True, trafaret=t.Enum('date-time', 'date', 'time', 'email', 'phone', 'hostname', 'ipv4', 'ipv6', 'uri', 'uri-reference', 'uri-template', 'json-pointer')),
 )
@@ -231,17 +237,31 @@ def pattern_key(regexp_str, trafaret):
     return inner
 
 
-def check_object(*, properties={}, patternProperties={}, propertyNames=set(), additionalProperties=None, dependencies=set()):
+def check_object(*, properties={}, patternProperties={}, additionalProperties=None, dependencies={}):
     keys = []
     for name, trafaret in properties.items():
-        keys.append(t.Key(name, trafaret=trafaret))
+        keys.append(t.Key(name, optional=True, trafaret=trafaret))
     for pattern, trafaret in patternProperties.items():
         keys.append(pattern_key(pattern, trafaret))
     additionals_trafaret = additionalProperties or t.Any
     dict_trafaret = t.Dict(*keys, allow_extra='*', allow_extra_trafaret=additionals_trafaret)
 
     def inner(data):
-        return dict_trafaret(data)
+        errors = {}
+        try:
+            value = dict_trafaret(data)
+        except t.DataError:
+            raise
+        for k, schema in dependencies.items():
+            if k not in value:
+                continue
+            try:
+                schema(value)
+            except t.DataError as de:
+                errors.update(de.as_dict())
+        if errors:
+            raise t.DataError(errors)
+        return value
 
     return inner
 
@@ -274,13 +294,13 @@ def create_schema_parser(register):
             trafaret=check_array,
         ),
         # object
+        t.Key('propertyNames', optional=True, trafaret=json_schema & then(property_names)),
         subdict(
             'object',
             t.Key('properties', optional=True, trafaret=t.Mapping(t.String, json_schema)),
             t.Key('patternProperties', optional=True, trafaret=t.Mapping(Pattern, json_schema)),
-            t.Key('propertyNames', optional=True, trafaret=json_schema),
             t.Key('additionalProperties', optional=True, trafaret=json_schema),
-            t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list | json_schema)),
+            t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list & required | json_schema)),
             trafaret=check_object,
         ),
     )

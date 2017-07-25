@@ -284,3 +284,36 @@ class TestObjects(unittest.TestCase):
         with self.assertRaises(t.DataError):
             check({'a': 3, 'aaa': 'b'})
         self.assertEqual(check({'a': 1, 'aaa': 3}), {'a': 1, 'aaa': 3})
+
+    def test_additional_properties(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            'properties': {'a': {'type': 'number'}},
+            'additionalProperties': {'type': 'boolean'},
+        })
+        with self.assertRaises(t.DataError):
+            check({'a':1, 'b': 2})
+        self.assertEqual(check({'a': 1, 'b': True}), {'a': 1, 'b': True})
+
+    def test_property_names(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            'propertyNames': {
+                'type': 'string',
+                'pattern': 'bla+',
+            },
+        })
+        with self.assertRaises(t.DataError):
+            check({'a': 'b'})
+        self.assertEqual(check({'bla': 1, 'blabla': 3}), {'bla': 1, 'blabla': 3})
+
+    def test_dependencies(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            'properties': {'a': {'type': 'number'}},
+            'dependencies': {'a': ['b', 'c']},
+        })
+        self.assertEqual(check({'bla': 1, 'blabla': 3}), {'bla': 1, 'blabla': 3})
+        with self.assertRaises(t.DataError):
+            check({'a': 'b'})
+        self.assertEqual(check({'a': 1, 'b': 3, 'c': 4}), {'a': 1, 'b': 3, 'c': 4})
