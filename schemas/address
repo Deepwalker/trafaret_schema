@@ -1,5 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-04/schema#",
+    "$id": "http://json-schema.org/address",
     "description": "An Address following the convention of http://microformats.org/wiki/hcard",
     "type": "object",
     "properties": {

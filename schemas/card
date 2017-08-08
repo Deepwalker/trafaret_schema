@@ -1,5 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-04/schema#",
+    "$id": "http://json-schema.org/card",
     "description": "A representation of a person, company, organization, or place",
     "type": "object",
     "required": ["familyName", "givenName"],

@@ -1,15 +1,23 @@
 import re
 import sre_constants
+import weakref
+from collections import defaultdict
 import trafaret as t
 
 
 # Utils
 #######
 def then(trafaret_creator):
-    return trafaret_creator
+    """
+    Its just fun then to write `& then(just())` :D
+    """
+    def inner(value):
+        return trafaret_creator(value)
+    return inner
 
 
 def just(trafaret):
+    """Returns trafaret and ignoring values"""
     def create(value):
         return trafaret
     return create
@@ -82,9 +90,6 @@ ensure_list = lambda typ: t.List(typ) | typ & (lambda x: [x])
 
 # JSON Schema implementation
 ############################
-class Register:
-    pass
-
 json_schema_type = (
     t.Atom('null') & just(t.Null())
     | t.Atom('boolean') & just(t.Bool())
@@ -142,6 +147,7 @@ def property_names(trafaret):
     return check
 
 
+# simple keys that does not provide $ref headache
 keywords = (
     t.Key('enum', optional=True, trafaret=t.List(t.Any) & (lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))), # uniq?
     t.Key('const', optional=True, trafaret=t.Any() & then(t.Atom)),
@@ -176,13 +182,13 @@ ignore_keys = {'$id', '$schema', '$ref', 'title', 'description', 'definitions', 
 
 
 def subdict(name, *keys, trafaret):
-    def inner(data):
+    def inner(data, context=None):
         errors = False
         preserve_output = []
         touched = set()
         collect = {}
         for key in keys:
-            for k, v, names in key(data):
+            for k, v, names in key(data, context=context):
                 touched.update(names)
                 preserve_output.append((k, v, names))
                 if isinstance(v, t.DataError):
@@ -266,68 +272,166 @@ def check_object(*, properties={}, patternProperties={}, additionalProperties=No
     return inner
 
 
-def create_schema_parser(register):
-    json_schema = t.Forward()
-    metadata = (
-        t.Key('$id', optional=True, trafaret=t.URL),
-        t.Key('$schema', optional=True, trafaret=t.URL),
-        t.Key('$ref', optional=True, trafaret=t.String),
-        t.Key('title', optional=True, trafaret=t.String),
-        t.Key('description', optional=True, trafaret=t.String),
-        t.Key('definitions', optional=True, trafaret=t.Mapping(t.String, json_schema)),
-        t.Key('examples', optional=True, trafaret=t.List(t.Any)),
-        t.Key('default', optional=True, trafaret=t.Any),
-    )
+class Register:
+    def __init__(self, name='root'):
+        self.name = name
+        self._metadata = {}
+        self.childs = {}
+        self.current_path = []
 
-    schema_keywords = (
-        # predicates
-        t.Key('allOf', optional=True, trafaret=t.List(json_schema) & then(All)),
-        t.Key('anyOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
-        t.Key('oneOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
-        t.Key('not', optional=True, trafaret=json_schema & then(Not)),
-        # array
-        t.Key('contains', optional=True, trafaret=json_schema & then(contains)),
-        subdict(
-            'array',
-            t.Key('items', optional=True, trafaret=ensure_list(json_schema)),
-            t.Key('additionalItems', optional=True, trafaret=json_schema),
-            trafaret=check_array,
-        ),
-        # object
-        t.Key('propertyNames', optional=True, trafaret=json_schema & then(property_names)),
-        subdict(
-            'object',
-            t.Key('properties', optional=True, trafaret=t.Mapping(t.String, json_schema)),
-            t.Key('patternProperties', optional=True, trafaret=t.Mapping(Pattern, json_schema)),
-            t.Key('additionalProperties', optional=True, trafaret=json_schema),
-            t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list & required | json_schema)),
-            trafaret=check_object,
-        ),
-    )
+    def metadata(self, key):
+        def save_metadata(data):
+            self._metadata[key] = data
+            if key == '$ref':
+                def check_by_ref(value):
+                    raise t.DataError('$ref fucked up')
+                    return value
+                return check_by_ref
+            return (lambda value: value)
+        return save_metadata
 
-    def validate_schema(schema):
-        touched_names = set()
-        errors = {}
-        keywords_checks = []
-        for key in [*keywords, *schema_keywords]:
-            for k, v, names in key(schema):
-                if isinstance(v, t.DataError):
-                    errors[k] = v
+    def child(self, path):
+        if path not in self.childs:
+            self.childs[path] = Register(name=path)
+        return self.childs[path]
+
+    def meta_key(self, name, trafaret):
+        trafaret = t.ensure_trafaret(trafaret)
+        def inner(data, context=None):
+            if name in data:
+                value = t.catch(trafaret, data[name], context=context)
+                if isinstance(value, t.DataError):
+                    yield name, value, (name,)
                 else:
-                    keywords_checks.append(v)
-                touched_names = touched_names.union(names)
-        touched_names = touched_names.union(ignore_keys)
-        schema_keys = set(schema.keys())
-        for key in schema_keys - touched_names:
-            errors[key] = '%s is not allowed key' % key
+                    yield name, self.get_top().metadata(value), (name,)
+        return inner
+
+    def get_top(self):
+        return self.current_path[-1] if self.current_path else self
+
+    def push(self, path):
+        self.current_path.append(self.get_top().child(path))
+        print('>> #/' + '/'.join(reg.name for reg in self.current_path))
+
+    def pop(self):
+        if self.current_path:
+            prev = self.current_path.pop()
+        print('<< #/' + '/'.join(reg.name for reg in self.current_path))
+
+
+def deep_schema(key):
+    def inner(data, context=None):
+        register = context
+        register.push(key)
+        try:
+            schema = json_schema(data, context=register)
+            register.get_top().schema = schema
+            return schema
+        finally:
+            register.pop()
+    return t.Call(inner)
+
+
+def deep_schema_mapping(path, key_trafaret):
+    def inner(mapping, context=None):
+        register = context
+        if not isinstance(mapping, dict):
+            raise t.DataError("value is not a dict", value=mapping)
+        checked_mapping = {}
+        errors = {}
+        for key, value in mapping.items():
+            pair_errors = {}
+            try:
+                checked_key = key_trafaret.check(key, context=register)
+            except t.DataError as err:
+                pair_errors['key'] = err
+                checked_key = None
+            try:
+                if checked_key:
+                    register.push(path)
+                    register.push(checked_key)
+                schema = json_schema.check(value, context=register)
+            except t.DataError as err:
+                pair_errors['value'] = err
+            else:
+                register.schema = schema
+            finally:
+                if checked_key:
+                    register.pop()
+                    register.pop()
+            if pair_errors:
+                errors[key] = t.DataError(error=pair_errors)
+            else:
+                checked_mapping[checked_key] = schema
         if errors:
-            raise t.DataError(errors)
-        return All(keywords_checks)
-
-    json_schema << (t.Type(dict) & t.Call(validate_schema))
-    return json_schema
+            raise t.DataError(error=errors, trafaret=self)
+        return checked_mapping
+    return inner
 
 
-def json_schema(schema, register=None):
-    register = register or Register()
-    return create_schema_parser(register)(schema)
+json_schema = t.Forward()
+
+metadata = (
+    t.Key('$id', optional=True, trafaret=t.URL),
+    t.Key('$schema', optional=True, trafaret=t.URL),
+    t.Key('$ref', optional=True, trafaret=t.String),
+    t.Key('title', optional=True, trafaret=t.String),
+    t.Key('description', optional=True, trafaret=t.String),
+    t.Key('definitions', optional=True, trafaret=deep_schema_mapping('definitions', t.String())),
+    t.Key('examples', optional=True, trafaret=t.List(t.Any)),
+    t.Key('default', optional=True, trafaret=t.Any),
+)
+
+schema_keywords = (
+    # predicates
+    t.Key('allOf', optional=True, trafaret=t.List(json_schema) & then(All)),
+    t.Key('anyOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
+    t.Key('oneOf', optional=True, trafaret=t.List(json_schema) & then(Any)),
+    t.Key('not', optional=True, trafaret=json_schema & then(Not)),
+    # array
+    t.Key('contains', optional=True, trafaret=deep_schema('contains') & then(contains)),
+    subdict(
+        'array',
+        t.Key('items', optional=True, trafaret=ensure_list(deep_schema('items'))),
+        t.Key('additionalItems', optional=True, trafaret=deep_schema('additionalItems')),
+        trafaret=check_array,
+    ),
+    # object
+    t.Key('propertyNames', optional=True, trafaret=deep_schema('propertyNames') & then(property_names)),
+    subdict(
+        'object',
+        t.Key('properties', optional=True, trafaret=deep_schema_mapping('properties', t.String())),
+        t.Key('patternProperties', optional=True, trafaret=deep_schema_mapping('patternProperties', Pattern())),
+        t.Key('additionalProperties', optional=True, trafaret=deep_schema('additionalProperties')),
+        t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list & required | deep_schema('dependencies'))),
+        trafaret=check_object,
+    ),
+)
+
+def validate_schema(schema, context=None):
+    if context is None:
+        context = Register()
+    touched_names = set()
+    errors = {}
+    keywords_checks = []
+    if '$id' in schema:
+        print('Uhhu!', schema['$id'])
+        pass
+    for key in [*metadata, *keywords, *schema_keywords]:
+        for k, v, names in key(schema, context=context):
+            if isinstance(v, t.DataError):
+                errors[k] = v
+            else:
+                keywords_checks.append(v)
+            touched_names = touched_names.union(names)
+    touched_names = touched_names.union(ignore_keys)
+    schema_keys = set(schema.keys())
+    for key in schema_keys - touched_names:
+        errors[key] = '%s is not allowed key' % key
+    if errors:
+        raise t.DataError(errors)
+    schema_trafaret = All(keywords_checks)
+    return schema_trafaret
+
+
+json_schema << (t.Type(dict) & t.Call(validate_schema))

@@ -1,5 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-04/schema#",
+    "$id": "http://json-schema.org/calendar",
     "description": "A representation of an event",
     "type": "object",
     "required": [ "dtstart", "summary" ],
@@ -33,6 +34,6 @@
         },
         "category": { "type": "string" },
         "description": { "type": "string" },
-        "geo": { "$ref": "http: //json-schema.org/geo" }
+        "geo": { "$ref": "http://json-schema.org/geo" }
     }
 }
