@@ -317,3 +317,71 @@ class TestObjects(unittest.TestCase):
         with self.assertRaises(t.DataError):
             check({'a': 'b'})
         self.assertEqual(check({'a': 1, 'b': 3, 'c': 4}), {'a': 1, 'b': 3, 'c': 4})
+
+
+class TestReferences(unittest.TestCase):
+    def test_local_reference(self):
+        check = trafaret_schema.json_schema({
+            'type': 'object',
+            "properties": {
+                "billing_address": { "$ref": "#/definitions/address" },
+                "shipping_address": { "$ref": "#/definitions/address" },
+            },
+            "definitions": {
+                "address": {
+                    "type": "object",
+                    "properties": {
+                        "street_address": { "type": "string" },
+                        "city": { "type": "string" },
+                        "state": { "type": "string" },
+                    },
+
+                    "required": ["city"],
+                },
+            },
+        })
+        data = {
+            'billing_address': {'city': 'Samara'},
+            'shipping_address': {'city': 'Samara'},
+        }
+        assert check(data) == data
+
+    def test_adjacent_reference(self):
+        register = trafaret_schema.Register()
+        addresses = trafaret_schema.json_schema({
+                "$id": "http://yuhuhu.com/address",
+                "type": "object",
+                "properties": {
+                    "billing_address": { "$ref": "#/definitions/address" },
+                    "shipping_address": { "$ref": "#/definitions/address" },
+                },
+                "definitions": {
+                    "address": {
+                        "type": "object",
+                        "properties": {
+                            "street_address": { "type": "string" },
+                            "city": { "type": "string" },
+                            "state": { "type": "string" },
+                        },
+
+                        "required": ["city"],
+                    },
+                },
+            },
+            context=register,
+        )
+        person = trafaret_schema.json_schema({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "address": {"$ref":  "http://yuhuhu.com/address#/definitions/address"},
+                },
+            },
+            context=register,
+        )
+
+        data = {
+            'name': 'Peotr',
+            'address': {'city': 'Moscow'},
+        }
+        assert person.check(data) == data

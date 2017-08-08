@@ -1,6 +1,7 @@
 import re
 import sre_constants
 import weakref
+from uuid import uuid4
 from collections import defaultdict
 import trafaret as t
 
@@ -273,50 +274,50 @@ def check_object(*, properties={}, patternProperties={}, additionalProperties=No
 
 
 class Register:
-    def __init__(self, name='root'):
+    def __init__(self):
+        self.schemas = {}
+
+    def reg_schema(self, name):
+        self.schemas[name] = SchemaRegister(name, self)
+        return self.schemas[name]
+
+    def get_schema(self, ref):
+        schema_id, reference = ref.split('#', 1)
+        return self.schemas[schema_id].get_schema('#' + reference)
+
+
+class SchemaRegister:
+    def __init__(self, name, register):
         self.name = name
-        self._metadata = {}
-        self.childs = {}
         self.current_path = []
+        self.schemas = {}
+        self.register = register
 
-    def metadata(self, key):
-        def save_metadata(data):
-            self._metadata[key] = data
-            if key == '$ref':
-                def check_by_ref(value):
-                    raise t.DataError('$ref fucked up')
-                    return value
-                return check_by_ref
-            return (lambda value: value)
-        return save_metadata
+    def save_schema(self, schema):
+        if self.str_path() in self.schemas:
+            raise RuntimeError('WAT? ' + self.str_path() + ' ' + repr(self.schemas))
+        self.schemas[self.str_path()] = schema
 
-    def child(self, path):
-        if path not in self.childs:
-            self.childs[path] = Register(name=path)
-        return self.childs[path]
+    def get_schema(self, ref):
+        if ref.startswith('#'):  # local reference
+            if ref not in self.schemas:
+                # TODO detect on build
+                raise t.DataError('Bad reference in JSON schema')
+            return self.schemas.get(ref)
+        else:
+            return self.register.get_schema(ref)
 
-    def meta_key(self, name, trafaret):
-        trafaret = t.ensure_trafaret(trafaret)
-        def inner(data, context=None):
-            if name in data:
-                value = t.catch(trafaret, data[name], context=context)
-                if isinstance(value, t.DataError):
-                    yield name, value, (name,)
-                else:
-                    yield name, self.get_top().metadata(value), (name,)
-        return inner
-
-    def get_top(self):
-        return self.current_path[-1] if self.current_path else self
+    def str_path(self):
+        return '#/' + '/'.join(path for path in self.current_path)
 
     def push(self, path):
-        self.current_path.append(self.get_top().child(path))
-        print('>> #/' + '/'.join(reg.name for reg in self.current_path))
+        self.current_path.append(path)
+        # print('>> ' + self.name + self.str_path())
 
     def pop(self):
         if self.current_path:
             prev = self.current_path.pop()
-        print('<< #/' + '/'.join(reg.name for reg in self.current_path))
+        # print('<< ' + self.str_path())
 
 
 def deep_schema(key):
@@ -325,7 +326,7 @@ def deep_schema(key):
         register.push(key)
         try:
             schema = json_schema(data, context=register)
-            register.get_top().schema = schema
+            register.save_schema(schema)
             return schema
         finally:
             register.pop()
@@ -354,7 +355,7 @@ def deep_schema_mapping(path, key_trafaret):
             except t.DataError as err:
                 pair_errors['value'] = err
             else:
-                register.schema = schema
+                register.save_schema(schema)
             finally:
                 if checked_key:
                     register.pop()
@@ -369,12 +370,20 @@ def deep_schema_mapping(path, key_trafaret):
     return inner
 
 
+def ref_field(reference, context=None):
+    register = context
+    def inner(value, context=None):
+        schema = register.get_schema(reference)
+        return schema(value, context=context)
+    return inner
+
+
 json_schema = t.Forward()
 
 metadata = (
     t.Key('$id', optional=True, trafaret=t.URL),
     t.Key('$schema', optional=True, trafaret=t.URL),
-    t.Key('$ref', optional=True, trafaret=t.String),
+    t.Key('$ref', optional=True, trafaret=t.String & ref_field),
     t.Key('title', optional=True, trafaret=t.String),
     t.Key('description', optional=True, trafaret=t.String),
     t.Key('definitions', optional=True, trafaret=deep_schema_mapping('definitions', t.String())),
@@ -392,8 +401,8 @@ schema_keywords = (
     t.Key('contains', optional=True, trafaret=deep_schema('contains') & then(contains)),
     subdict(
         'array',
-        t.Key('items', optional=True, trafaret=ensure_list(deep_schema('items'))),
-        t.Key('additionalItems', optional=True, trafaret=deep_schema('additionalItems')),
+        t.Key('items', optional=True, trafaret=ensure_list(json_schema)),
+        t.Key('additionalItems', optional=True, trafaret=json_schema),
         trafaret=check_array,
     ),
     # object
@@ -409,16 +418,21 @@ schema_keywords = (
 )
 
 def validate_schema(schema, context=None):
-    if context is None:
-        context = Register()
+    # we use `context` to provide register to deep schemas
+    if context is None or isinstance(context, Register):
+        register = context or Register()
+        schema_name = schema.get('$id') or uuid4().urn
+        schema_register = register.reg_schema(schema_name)
+    elif isinstance(context, SchemaRegister):
+        schema_register = context
+    else:
+        ValueError('You need to provide Register instance to json_schema and nothing else')
+
     touched_names = set()
     errors = {}
     keywords_checks = []
-    if '$id' in schema:
-        print('Uhhu!', schema['$id'])
-        pass
     for key in [*metadata, *keywords, *schema_keywords]:
-        for k, v, names in key(schema, context=context):
+        for k, v, names in key(schema, context=schema_register):
             if isinstance(v, t.DataError):
                 errors[k] = v
             else:

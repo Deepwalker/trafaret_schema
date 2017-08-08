@@ -40,6 +40,6 @@ Features:
         [*] oneOf
         [*] not
     [ ] format
-    [ ] references
-        [ ] definitions
-        [ ] $ref
+    [*] references
+        [*] definitions
+        [*] $ref
