@@ -385,3 +385,5 @@ class TestReferences(unittest.TestCase):
             'address': {'city': 'Moscow'},
         }
         assert person.check(data) == data
+
+        register.validate_references()

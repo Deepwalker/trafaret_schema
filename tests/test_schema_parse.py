@@ -11,9 +11,10 @@ class TestSchemas(unittest.TestCase):
 
 
     def test_schemas(self):
-        for dir_entry in os.scandir(self.schema_dir):
-            if dir_entry.is_file():
-                with open(dir_entry.path) as f:
+        for root, dirs, files in os.walk(self.schema_dir):
+            for filename in files:
+                path = op.join(root, filename)
+                with open(path) as f:
                     schema = json.load(f)
-                    print('Check', dir_entry.path)
+                    print('Check', path)
                     trafaret_schema.json_schema(schema)

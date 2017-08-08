@@ -2,8 +2,10 @@ import re
 import sre_constants
 import weakref
 from uuid import uuid4
-from collections import defaultdict
 import trafaret as t
+
+
+__VERSION__ = (0, 1, 0)
 
 
 # Utils
@@ -79,14 +81,18 @@ class Pattern(t.Trafaret):
         except sre_constants.error as e:
             raise t.DataError('Pattern is invalid due ' + e.msg)
 
+
 def all_strings_unique(strings):
     if len(strings) == len(set(strings)):
         return strings
     return t.DataError('all strings must be unique')
 
+
 unique_strings_list = t.List(t.String) >> all_strings_unique
 
-ensure_list = lambda typ: t.List(typ) | typ & (lambda x: [x])
+
+def ensure_list(typ):
+    return t.List(typ) | typ & (lambda x: [x])
 
 
 # JSON Schema implementation
@@ -143,14 +149,16 @@ def contains(trafaret):
 
 def property_names(trafaret):
     checker = t.List(trafaret)
+
     def check(data):
         return checker(list(data.keys()))
+
     return check
 
 
 # simple keys that does not provide $ref headache
 keywords = (
-    t.Key('enum', optional=True, trafaret=t.List(t.Any) & (lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))), # uniq?
+    t.Key('enum', optional=True, trafaret=t.List(t.Any) & (lambda consts: t.Or(*(t.Atom(cnst) for cnst in consts)))),
     t.Key('const', optional=True, trafaret=t.Any() & then(t.Atom)),
     t.Key('type', optional=True, trafaret=ensure_list(json_schema_type) & then(Any)),
 
@@ -169,20 +177,63 @@ keywords = (
     # array
     t.Key('maxItems', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.List(t.Any, max_length=length))),
     t.Key('minItems', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.List(t.Any, min_length=length))),
-    t.Key('uniqueItems', optional=True, trafaret=t.Bool() & (lambda need_check: t.List(t.Any) & uniq if need_check else t.Any)),
+    t.Key(
+        'uniqueItems',
+        optional=True,
+        trafaret=t.Bool() & (lambda need_check: t.List(t.Any) & uniq if need_check else t.Any)
+    ),
 
     # object
-    t.Key('maxProperties', optional=True, trafaret=t.Int(gte=0) & (lambda max_props: t.Type(dict) & (lambda props: props if len(props) <= max_props else t.DataError('Too many properties')))),
-    t.Key('minProperties', optional=True, trafaret=t.Int(gte=0) & (lambda min_props: t.Type(dict) & (lambda props: props if len(props) >= min_props else t.DataError('Too few properties')))),
+    t.Key(
+        'maxProperties',
+        optional=True,
+        trafaret=(
+            t.Int(gte=0)
+            & (lambda max_props: (
+                t.Type(dict)
+                & (lambda props: props if len(props) <= max_props else t.DataError('Too many properties'))
+            ))
+        )
+    ),
+    t.Key(
+        'minProperties',
+        optional=True,
+        trafaret=(
+            t.Int(gte=0)
+            & (lambda min_props: (
+                t.Type(dict)
+                & (lambda props: props if len(props) >= min_props else t.DataError('Too few properties'))
+            ))
+        )
+    ),
     t.Key('required', optional=True, trafaret=unique_strings_list & required),
 
-    t.Key('format', optional=True, trafaret=t.Enum('date-time', 'date', 'time', 'email', 'phone', 'hostname', 'ipv4', 'ipv6', 'uri', 'uri-reference', 'uri-template', 'json-pointer')),
+    t.Key(
+        'format',
+        optional=True,
+        trafaret=t.Enum(
+            'date-time',
+            'date',
+            'time',
+            'email',
+            'phone',
+            'hostname',
+            'ipv4',
+            'ipv6',
+            'uri',
+            'uri-reference',
+            'uri-template',
+            'json-pointer',
+        )
+    ),
 )
 
 ignore_keys = {'$id', '$schema', '$ref', 'title', 'description', 'definitions', 'examples'}
 
 
-def subdict(name, *keys, trafaret):
+def subdict(name, *keys, **kw):
+    trafaret = kw.pop('trafaret')  # coz py2k
+
     def inner(data, context=None):
         errors = False
         preserve_output = []
@@ -197,13 +248,15 @@ def subdict(name, *keys, trafaret):
                 else:
                     collect[k] = v
         if errors:
-            yield from preserve_output
+            for out in preserve_output:
+                yield out
         elif collect:
             yield name, t.catch(trafaret, **collect), touched
+
     return inner
 
 
-def check_array(*, items=[], additionalItems=None):
+def check_array(items=[], additionalItems=None):
     if len(items) == 1:
         return t.List(items[0])
 
@@ -244,7 +297,7 @@ def pattern_key(regexp_str, trafaret):
     return inner
 
 
-def check_object(*, properties={}, patternProperties={}, additionalProperties=None, dependencies={}):
+def check_object(properties={}, patternProperties={}, additionalProperties=None, dependencies={}):
     keys = []
     for name, trafaret in properties.items():
         keys.append(t.Key(name, optional=True, trafaret=trafaret))
@@ -273,7 +326,7 @@ def check_object(*, properties={}, patternProperties={}, additionalProperties=No
     return inner
 
 
-class Register:
+class Register(object):
     def __init__(self):
         self.schemas = {}
 
@@ -283,29 +336,42 @@ class Register:
 
     def get_schema(self, ref):
         schema_id, reference = ref.split('#', 1)
+        if schema_id not in self.schemas:
+            raise t.DataError('Bad reference `%s` in schema' % ref)
         return self.schemas[schema_id].get_schema('#' + reference)
 
+    def validate_references(self):
+        for schema in self.schemas.values():
+            schema.validate_references()
 
-class SchemaRegister:
+
+class SchemaRegister(object):
     def __init__(self, name, register):
         self.name = name
         self.current_path = []
         self.schemas = {}
-        self.register = register
+        self.references = set()
+        self.register = weakref.ref(register)
 
     def save_schema(self, schema):
-        if self.str_path() in self.schemas:
-            raise RuntimeError('WAT? ' + self.str_path() + ' ' + repr(self.schemas))
+        assert self.str_path() not in self.schemas
         self.schemas[self.str_path()] = schema
 
     def get_schema(self, ref):
         if ref.startswith('#'):  # local reference
             if ref not in self.schemas:
                 # TODO detect on build
-                raise t.DataError('Bad reference in JSON schema')
+                raise t.DataError('Bad reference `%s` in JSON schema' % ref)
             return self.schemas.get(ref)
         else:
-            return self.register.get_schema(ref)
+            return self.register().get_schema(ref)
+
+    def reg_reference(self, ref):
+        self.references.add(ref)
+
+    def validate_references(self):
+        for reference in self.references:
+            self.get_schema(reference)
 
     def str_path(self):
         return '#/' + '/'.join(path for path in self.current_path)
@@ -316,7 +382,7 @@ class SchemaRegister:
 
     def pop(self):
         if self.current_path:
-            prev = self.current_path.pop()
+            self.current_path.pop()
         # print('<< ' + self.str_path())
 
 
@@ -365,16 +431,19 @@ def deep_schema_mapping(path, key_trafaret):
             else:
                 checked_mapping[checked_key] = schema
         if errors:
-            raise t.DataError(error=errors, trafaret=self)
+            raise t.DataError(error=errors)
         return checked_mapping
     return inner
 
 
 def ref_field(reference, context=None):
     register = context
+    register.reg_reference(reference)
+
     def inner(value, context=None):
         schema = register.get_schema(reference)
         return schema(value, context=context)
+
     return inner
 
 
@@ -412,10 +481,18 @@ schema_keywords = (
         t.Key('properties', optional=True, trafaret=deep_schema_mapping('properties', t.String())),
         t.Key('patternProperties', optional=True, trafaret=deep_schema_mapping('patternProperties', Pattern())),
         t.Key('additionalProperties', optional=True, trafaret=deep_schema('additionalProperties')),
-        t.Key('dependencies', optional=True, trafaret=t.Mapping(t.String, unique_strings_list & required | deep_schema('dependencies'))),
+        t.Key(
+            'dependencies',
+            optional=True,
+            trafaret=t.Mapping(t.String, unique_strings_list & required | deep_schema('dependencies'))
+        ),
         trafaret=check_object,
     ),
 )
+
+
+all_keywords = () + metadata + keywords + schema_keywords
+
 
 def validate_schema(schema, context=None):
     # we use `context` to provide register to deep schemas
@@ -431,14 +508,14 @@ def validate_schema(schema, context=None):
     touched_names = set()
     errors = {}
     keywords_checks = []
-    for key in [*metadata, *keywords, *schema_keywords]:
+    for key in all_keywords:
         for k, v, names in key(schema, context=schema_register):
             if isinstance(v, t.DataError):
                 errors[k] = v
             else:
                 keywords_checks.append(v)
             touched_names = touched_names.union(names)
-    touched_names = touched_names.union(ignore_keys)
+    # touched_names = touched_names.union(ignore_keys)
     schema_keys = set(schema.keys())
     for key in schema_keys - touched_names:
         errors[key] = '%s is not allowed key' % key
