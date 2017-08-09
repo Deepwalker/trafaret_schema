@@ -1,6 +1,12 @@
 Trafaret Schema
 ===============
 
+[![Build status](https://circleci.com/gh/Deepwalker/trafaret.svg?style=shield)](https://circleci.com/gh/Deepwalker/trafaret)
+[![Gitter](https://badges.gitter.im/Deepwalker/trafaret.png)](https://gitter.im/Deepwalker/trafaret)
+[![Downloads](https://img.shields.io/pypi/v/trafaret.svg?style=flat-square)](https://pypi.python.org/pypi/trafaret)
+[![Downloads](https://img.shields.io/pypi/l/trafaret.svg?style=flat-square)](https://pypi.python.org/pypi/trafaret)
+
+
 Project takes JSON Schema and converts it to Trafaret instance:
 
     from trafaret_schema import json_schema
