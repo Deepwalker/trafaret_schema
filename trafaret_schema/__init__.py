@@ -1,8 +1,20 @@
 import re
-import sre_constants
 import weakref
 from uuid import uuid4
+
 import trafaret as t
+
+from .utils import (
+    then,
+    just,
+    Any,
+    All,
+    Not,
+    Pattern,
+    unique_strings_list,
+    ensure_list,
+)
+from .format import format_trafaret
 
 
 __VERSION__ = (0, 1, 0)
@@ -10,91 +22,6 @@ __VERSION__ = (0, 1, 0)
 
 # Utils
 #######
-def then(trafaret_creator):
-    """
-    Its just fun then to write `& then(just())` :D
-    """
-    def inner(value):
-        return trafaret_creator(value)
-    return inner
-
-
-def just(trafaret):
-    """Returns trafaret and ignoring values"""
-    def create(value):
-        return trafaret
-    return create
-
-
-class All(t.Trafaret):
-    def __init__(self, trafarets):
-        self.trafarets = trafarets
-
-    def check_and_return(self, value):
-        errors = []
-        for trafaret in self.trafarets:
-            res = t.catch_error(trafaret, value)
-            if isinstance(res, t.DataError):
-                errors.append(res)
-        if errors:
-            raise t.DataError(errors)
-        return value
-
-    def __repr__(self):
-        return '<All trafarets=[%s]>' % ', '.join(repr(r) for r in self.trafarets)
-
-
-class Any(t.Trafaret):
-    def __init__(self, trafarets):
-        self.trafarets = trafarets
-
-    def check_and_return(self, value):
-        errors = []
-        for trafaret in self.trafarets:
-            res = t.catch_error(trafaret, value)
-            if isinstance(res, t.DataError):
-                errors.append(res)
-            else:
-                return value
-        raise t.DataError(errors)
-
-    def __repr__(self):
-        return '<Any trafarets=[%s]>' % ', '.join(repr(r) for r in self.trafarets)
-
-
-class Not(t.Trafaret):
-    def __init__(self, trafaret):
-        self.trafaret = trafaret
-
-    def check_and_return(self, value):
-        res = t.catch_error(self.trafaret, value)
-        if not isinstance(res, t.DataError):
-            raise t.DataError('Value must not be validated')
-        return value
-
-
-class Pattern(t.Trafaret):
-    def check_and_return(self, value):
-        try:
-            re.compile(value)
-            return value
-        except sre_constants.error as e:
-            raise t.DataError('Pattern is invalid due ' + e.msg)
-
-
-def all_strings_unique(strings):
-    if len(strings) == len(set(strings)):
-        return strings
-    return t.DataError('all strings must be unique')
-
-
-unique_strings_list = t.List(t.String) >> all_strings_unique
-
-
-def ensure_list(typ):
-    return t.List(typ) | typ & (lambda x: [x])
-
-
 # JSON Schema implementation
 ############################
 json_schema_type = (
@@ -208,24 +135,7 @@ keywords = (
     ),
     t.Key('required', optional=True, trafaret=unique_strings_list & required),
 
-    t.Key(
-        'format',
-        optional=True,
-        trafaret=t.Enum(
-            'date-time',
-            'date',
-            'time',
-            'email',
-            'phone',
-            'hostname',
-            'ipv4',
-            'ipv6',
-            'uri',
-            'uri-reference',
-            'uri-template',
-            'json-pointer',
-        )
-    ),
+    t.Key('format', optional=True, trafaret=format_trafaret),
 )
 
 ignore_keys = {'$id', '$schema', '$ref', 'title', 'description', 'definitions', 'examples'}
@@ -329,6 +239,7 @@ def check_object(properties={}, patternProperties={}, additionalProperties=None,
 class Register(object):
     def __init__(self):
         self.schemas = {}
+        self.custom_formats = {}
 
     def reg_schema(self, name):
         self.schemas[name] = SchemaRegister(name, self)
@@ -343,6 +254,12 @@ class Register(object):
     def validate_references(self):
         for schema in self.schemas.values():
             schema.validate_references()
+
+    def get_format(self, name):
+        return self.custom_formats.get(name)
+
+    def reg_format(self, name, trafaret):
+        self.custom_formats[name] = trafaret
 
 
 class SchemaRegister(object):
@@ -384,6 +301,9 @@ class SchemaRegister(object):
         if self.current_path:
             self.current_path.pop()
         # print('<< ' + self.str_path())
+
+    def get_register(self):
+        return self.register()
 
 
 def deep_schema(key):
