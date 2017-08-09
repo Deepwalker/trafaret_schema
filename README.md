@@ -2,7 +2,7 @@ Trafaret Schema
 ===============
 
 [![Build status](https://circleci.com/gh/Deepwalker/trafaret_schema.svg?style=shield)](https://circleci.com/gh/Deepwalker/trafaret_schema)
-[![Gitter](https://badges.gitter.im/Deepwalker/trafaret_schema.png)](https://gitter.im/Deepwalker/trafaret_schema)
+[![Gitter](https://badges.gitter.im/Deepwalker/trafaret.png)](https://gitter.im/Deepwalker/trafaret)
 [![Downloads](https://img.shields.io/pypi/v/trafaret_schema.svg?style=flat-square)](https://pypi.python.org/pypi/trafaret_schema)
 [![Downloads](https://img.shields.io/pypi/l/trafaret_schema.svg?style=flat-square)](https://pypi.python.org/pypi/trafaret_schema)
 
