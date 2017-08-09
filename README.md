@@ -1,12 +1,15 @@
 Trafaret Schema
 ===============
 
-Project takes json schema and converts it to Trafaret instance:
+Project takes JSON Schema and converts it to Trafaret instance:
 
     from trafaret_schema import json_schema
     check_string = json_schema({'type': 'string', 'minLength': 6, 'maxLength': 10, 'pattern': '(bla)+'})
     check_string('blablabla')
 
+What is important to note, that this project is big trafaret that produces other trafaret. So on parsing
+JSON Schema you can get DataError, and you will get DataError in usage of parsed schema.
+And you can use schema parser or parsed schema as trafaret in any circumstances where you can use trafarets.
 
 You can use `Register` object to provide custom `format` implementation and to support cross schemas `$ref`
 objects:
