@@ -20,6 +20,10 @@ from .format import format_trafaret
 __VERSION__ = (0, 1, 1)
 
 
+# Utils
+#######
+# JSON Schema implementation
+############################
 json_schema_type = (
     t.Atom('null') & just(t.Null())
     | t.Atom('boolean') & just(t.Bool())
@@ -96,7 +100,6 @@ keywords = (
     t.Key('maxLength', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.String(max_length=length))),
     t.Key('minLength', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.String(min_length=length))),
     t.Key('pattern', optional=True, trafaret=Pattern() & (lambda pattern: t.Regexp(pattern))),
-    t.Key('example', optional=True, trafaret=t.Any() & then(t.Atom)),
 
     # array
     t.Key('maxItems', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.List(t.Any, max_length=length))),
@@ -134,6 +137,8 @@ keywords = (
 
     t.Key('format', optional=True, trafaret=format_trafaret),
 )
+
+ignore_keys = {'$id', '$schema', '$ref', 'title', 'description', 'example', 'definitions', 'examples'}
 
 
 def subdict(name, *keys, **kw):
@@ -425,11 +430,14 @@ def validate_schema(schema, context=None):
     keywords_checks = []
     for key in all_keywords:
         for k, v, names in key(schema, context=schema_register):
+            if k in ignore_keys:
+                continue
             if isinstance(v, t.DataError):
                 errors[k] = v
             else:
                 keywords_checks.append(v)
             touched_names = touched_names.union(names)
+    touched_names = touched_names.union(ignore_keys)
     schema_keys = set(schema.keys())
     for key in schema_keys - touched_names:
         errors[key] = '%s is not allowed key' % key
