@@ -43,8 +43,8 @@ format_trafaret = t.OnError(
         t.Atom('email') & just(t.Email),
         t.Atom('phone') & just(check_phone),
         t.Atom('uri') & just(t.URL),
-        t.Atom('ipv4') & just(t.IPv4()),
-        t.Atom('ipv6') & just(t.IPv6()),
+        t.Atom('ipv4') & just(t.IPv4),
+        t.Atom('ipv6') & just(t.IPv6),
     ),
     'Format does not defined and unsupported by this implementation',
 )
