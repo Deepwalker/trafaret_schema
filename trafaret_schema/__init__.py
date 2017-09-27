@@ -96,6 +96,7 @@ keywords = (
     t.Key('maxLength', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.String(max_length=length))),
     t.Key('minLength', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.String(min_length=length))),
     t.Key('pattern', optional=True, trafaret=Pattern() & (lambda pattern: t.Regexp(pattern))),
+    t.Key('example', optional=True, trafaret=t.Any() & then(t.Atom)),
 
     # array
     t.Key('maxItems', optional=True, trafaret=t.Int(gte=0) & (lambda length: t.List(t.Any, max_length=length))),
