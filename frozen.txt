@@ -1,1 +1,1 @@
-trafaret==0.11.dev4  # trafaret << requirements file
+trafaret==1.2.0      # trafaret << requirements file

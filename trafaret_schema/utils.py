@@ -72,13 +72,13 @@ class Pattern(t.Trafaret):
             re.compile(value)
             return value
         except sre_constants.error as e:
-            raise t.DataError('Pattern is invalid due ' + e.msg)
+            raise t.DataError('Pattern is invalid due ' + str(e))
 
 
 def all_strings_unique(strings):
     if len(strings) == len(set(strings)):
         return strings
-    return t.DataError('all strings must be unique')
+    raise t.DataError('all strings must be unique')
 
 
 unique_strings_list = t.List(t.String) >> all_strings_unique

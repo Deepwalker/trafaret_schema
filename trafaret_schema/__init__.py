@@ -17,7 +17,7 @@ from .utils import (
 from .format import format_trafaret
 
 
-__VERSION__ = (0, 1, 1)
+__VERSION__ = (0, 2, 0)
 
 
 json_schema_type = (
@@ -289,12 +289,10 @@ class SchemaRegister(object):
 
     def push(self, path):
         self.current_path.append(path)
-        # print('>> ' + self.name + self.str_path())
 
     def pop(self):
         if self.current_path:
             self.current_path.pop()
-        # print('<< ' + self.str_path())
 
     def get_register(self):
         return self.register()
@@ -314,6 +312,7 @@ def deep_schema(key):
 
 
 def deep_schema_mapping(path, key_trafaret):
+    @t.Call
     def inner(mapping, context=None):
         register = context
         if not isinstance(mapping, dict):
@@ -369,7 +368,7 @@ metadata = (
     t.Key('$ref', optional=True, trafaret=t.String & ref_field),
     t.Key('title', optional=True, trafaret=t.String),
     t.Key('description', optional=True, trafaret=t.String),
-    t.Key('definitions', optional=True, trafaret=deep_schema_mapping('definitions', t.String())),
+    t.Key('definitions', optional=True, trafaret=deep_schema_mapping('definitions', t.String()) & just(t.Any())),
     t.Key('examples', optional=True, trafaret=t.List(t.Any)),
     t.Key('default', optional=True, trafaret=t.Any),
 )

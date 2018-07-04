@@ -29,9 +29,9 @@ check_phone = t.OnError(t.Regexp('.+'), 'Bad formatted phone number')
 def check_from_register(format_name, context=None):
     register = context.get_register()
     custom_format = register.get_format(format_name)
-    # print(repr(format_name), custom_format, register.custom_formats)
     if not custom_format:
         raise t.DataError('Register does not contains this format', value=format_name)
+    return custom_format
 
 
 format_trafaret = t.OnError(
@@ -43,10 +43,10 @@ format_trafaret = t.OnError(
         t.Atom('email') & just(t.Email),
         t.Atom('phone') & just(check_phone),
         t.Atom('uri') & just(t.URL),
-        t.Atom('ipv4') & just(t.IPv4()),
-        t.Atom('ipv6') & just(t.IPv6()),
+        t.Atom('ipv4') & just(t.IPv4),
+        t.Atom('ipv6') & just(t.IPv6),
     ),
-    'Format does not defined and unsupported by this implementation',
+    'Format is not defined and unsupported by this implementation',
 )
 
 # TODO
