@@ -21,12 +21,12 @@ def just(trafaret):
 
 class All(t.Trafaret):
     def __init__(self, trafarets):
-        self.trafarets = trafarets
+        self.trafarets = [t.ensure_trafaret(trafaret) for trafaret in trafarets]
 
-    def check_and_return(self, value):
+    def transform(self, value, context=None):
         errors = []
         for trafaret in self.trafarets:
-            res = t.catch_error(trafaret, value)
+            res = t.catch_error(trafaret, value, context=context)
             if isinstance(res, t.DataError):
                 errors.append(res)
         if errors:
@@ -39,12 +39,12 @@ class All(t.Trafaret):
 
 class Any(t.Trafaret):
     def __init__(self, trafarets):
-        self.trafarets = trafarets
+        self.trafarets = [t.ensure_trafaret(trafaret) for trafaret in trafarets]
 
-    def check_and_return(self, value):
+    def transform(self, value, context=None):
         errors = []
         for trafaret in self.trafarets:
-            res = t.catch_error(trafaret, value)
+            res = t.catch_error(trafaret, value, context=context)
             if isinstance(res, t.DataError):
                 errors.append(res)
             else:
@@ -59,8 +59,8 @@ class Not(t.Trafaret):
     def __init__(self, trafaret):
         self.trafaret = trafaret
 
-    def check_and_return(self, value):
-        res = t.catch_error(self.trafaret, value)
+    def transform(self, value, context=None):
+        res = t.catch_error(self.trafaret, value, context=context)
         if not isinstance(res, t.DataError):
             raise t.DataError('Value must not be validated')
         return value

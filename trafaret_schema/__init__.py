@@ -14,18 +14,21 @@ from .utils import (
     unique_strings_list,
     ensure_list,
 )
+from .decimal import Decimal
 from .format import format_trafaret
 
 
-__VERSION__ = (0, 2, 0)
+__VERSION__ = (0, 2, 1)
 
+
+check_number = t.OnError(t.Float() | Decimal(), 'Not a number')
 
 json_schema_type = (
     t.Atom('null') & just(t.Null())
     | t.Atom('boolean') & just(t.Bool())
     | t.Atom('object') & just(t.Type(dict))
     | t.Atom('array') & just(t.Type(list))
-    | t.Atom('number') & just(t.Float())
+    | t.Atom('number') & just(check_number)
     | t.Atom('integer') & just(t.Int())
     | t.Atom('string') & just(t.String())
 )
@@ -194,10 +197,10 @@ def check_array(items=[], additionalItems=None):
 def pattern_key(regexp_str, trafaret):
     regexp = re.compile(regexp_str)
 
-    def inner(data):
+    def inner(data, context=None):
         for k, v in data.items():
             if regexp.match(k):
-                yield k, t.catch(trafaret, v), (k,)
+                yield k, t.catch(trafaret, v, context=context), (k,)
     return inner
 
 
@@ -210,10 +213,10 @@ def check_object(properties={}, patternProperties={}, additionalProperties=None,
     additionals_trafaret = additionalProperties or t.Any
     dict_trafaret = t.Dict(*keys, allow_extra='*', allow_extra_trafaret=additionals_trafaret)
 
-    def inner(data):
+    def inner(data, context=None):
         errors = {}
         try:
-            value = dict_trafaret(data)
+            value = dict_trafaret(data, context=context)
         except t.DataError:
             raise
         for k, schema in dependencies.items():
@@ -254,6 +257,9 @@ class Register(object):
 
     def reg_format(self, name, trafaret):
         self.custom_formats[name] = trafaret
+
+    def get_register(self):
+        return self
 
 
 class SchemaRegister(object):
@@ -362,15 +368,17 @@ def ref_field(reference, context=None):
 
 json_schema = t.Forward()
 
+noop = just(t.Any())
+
 metadata = (
-    t.Key('$id', optional=True, trafaret=t.URL),
-    t.Key('$schema', optional=True, trafaret=t.URL),
+    t.Key('$id', optional=True, trafaret=t.URL & noop),
+    t.Key('$schema', optional=True, trafaret=t.URL & noop),
     t.Key('$ref', optional=True, trafaret=t.String & ref_field),
-    t.Key('title', optional=True, trafaret=t.String),
-    t.Key('description', optional=True, trafaret=t.String),
-    t.Key('definitions', optional=True, trafaret=deep_schema_mapping('definitions', t.String()) & just(t.Any())),
-    t.Key('examples', optional=True, trafaret=t.List(t.Any)),
-    t.Key('default', optional=True, trafaret=t.Any),
+    t.Key('title', optional=True, trafaret=t.String & noop),
+    t.Key('description', optional=True, trafaret=t.String & noop),
+    t.Key('definitions', optional=True, trafaret=deep_schema_mapping('definitions', t.String()) & noop),
+    t.Key('examples', optional=True, trafaret=t.List(t.Any) & noop),
+    t.Key('default', optional=True, trafaret=t.Any & noop),
 )
 
 schema_keywords = (
@@ -421,11 +429,14 @@ def validate_schema(schema, context=None):
     touched_names = set()
     errors = {}
     keywords_checks = []
+    format_transform = t.Any
     for key in all_keywords:
         for k, v, names in key(schema, context=schema_register):
             if isinstance(v, t.DataError):
                 errors[k] = v
             else:
+                if k == 'format':
+                    format_transform = v
                 keywords_checks.append(v)
             touched_names = touched_names.union(names)
     schema_keys = set(schema.keys())
@@ -433,7 +444,7 @@ def validate_schema(schema, context=None):
         errors[key] = '%s is not allowed key' % key
     if errors:
         raise t.DataError(errors)
-    schema_trafaret = All(keywords_checks)
+    schema_trafaret = All(keywords_checks) & format_transform
     return schema_trafaret
 
 
